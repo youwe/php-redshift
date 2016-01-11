@@ -1,0 +1,21 @@
+{
+    "name"       : "oasis/redshift",
+    "description": "Redshift connection component with helper functions",
+    "type"       : "library",
+    "require"    : {
+        "oasis/aws-wrappers": "^1.1",
+        "doctrine/dbal": "^2.5"
+    },
+    "license"    : "MIT",
+    "authors"    : [
+        {
+            "name" : "Minhao Zhang",
+            "email": "minhao.zhang@qq.com"
+        }
+    ],
+    "autoload"   : {
+        "psr-4": {
+            "Oasis\\Mlib\\Redshift\\": "src/"
+        }
+    }
+}
