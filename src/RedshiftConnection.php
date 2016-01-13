@@ -82,6 +82,7 @@ SQL;
      * @param TemporaryCredential $tempCredential
      * @param bool                $escaped
      * @param bool                $gzip
+     * @param bool                $parallel
      *
      * @throws \Doctrine\DBAL\DBALException
      */
@@ -89,16 +90,15 @@ SQL;
                                $s3path,
                                TemporaryCredential $tempCredential,
                                $escaped = true,
-                               $gzip = false
+                               $gzip = false,
+                               $parallel = true
     )
     {
         $stmt_template = <<<SQL
 UNLOAD (%s)
 TO '%s'
 CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s;token=%s'
-%s
-%s
-
+%s %s %s
 SQL;
         $stmt          = sprintf(
             $stmt_template,
@@ -108,7 +108,8 @@ SQL;
             $tempCredential->secretAccessKey,
             $tempCredential->sessionToken,
             ($escaped ? "ESCAPE" : ""),
-            ($gzip ? "GZIP" : "")
+            ($gzip ? "GZIP" : ""),
+            ($parallel ? "" : "PARALLEL OFF")
         );
         mdebug("Unloading using stmt:\n%s", $stmt);
         $prepared_statement = $this->prepare($stmt);
