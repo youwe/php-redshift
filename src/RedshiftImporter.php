@@ -59,24 +59,32 @@ class RedshiftImporter
             );
         }
         
-        $s3Finder = $this->s3Fs->getFinder();
-        $s3Finder->path($clearPattern);
-        if ($s3Finder->count() > 0) {
-            if ($overwriteS3Files) {
-                foreach ($s3Finder as $splFileInfo) {
-                    $this->s3Fs->delete($splFileInfo->getRelativePathname());
+        try {
+            $s3Finder = $this->s3Fs->getFinder();
+            $s3Finder->path($clearPattern);
+            if ($s3Finder->count() > 0) {
+                if ($overwriteS3Files) {
+                    foreach ($s3Finder as $splFileInfo) {
+                        $this->s3Fs->delete($splFileInfo->getRelativePathname());
+                    }
+                }
+                else {
+                    throw new \RuntimeException(sprintf("The path is not empty on remote end, path = %s", $path));
                 }
             }
-            else {
-                throw new \RuntimeException(sprintf("The path is not empty on remote end, path = %s", $path));
+        } catch (\InvalidArgumentException $e) {
+            if (strpos($e->getMessage(), "directory does not exist") === false) {
+                throw $e;
             }
         }
         
+        $uploaded = [];
         foreach ($localFinder as $splFileInfo) {
             $relativePathname = $splFileInfo->getRelativePathname();
             $fh               = $this->localFs->readStream($relativePathname);
             $this->s3Fs->putStream($relativePathname, $fh);
             fclose($fh);
+            $uploaded[] = $relativePathname;
         }
         
         //$inStream = $this->localFs->readStream($path);
@@ -96,5 +104,9 @@ class RedshiftImporter
             true,
             $gzip
         );
+        
+        foreach ($uploaded as $relativePathname) {
+            $this->s3Fs->delete($relativePathname);
+        }
     }
 }

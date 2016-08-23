@@ -62,16 +62,22 @@ class RedshiftExporter
         mdebug("Download pattern for %s is %s", $path, $downloadPattern);
         
         // clear remote path
-        $finder = $this->s3Fs->getFinder();
-        $finder->path($clearPattern);
-        if ($finder->count() > 0) {
-            if ($overwriteExistingFiles) {
-                foreach ($finder as $splFileInfo) {
-                    $this->s3Fs->delete($splFileInfo->getRelativePathname());
+        try {
+            $finder = $this->s3Fs->getFinder();
+            $finder->path($clearPattern);
+            if ($finder->count() > 0) {
+                if ($overwriteExistingFiles) {
+                    foreach ($finder as $splFileInfo) {
+                        $this->s3Fs->delete($splFileInfo->getRelativePathname());
+                    }
+                }
+                else {
+                    throw new \RuntimeException(sprintf("The path is not empty on remote end, path = %s", $path));
                 }
             }
-            else {
-                throw new \RuntimeException(sprintf("The path is not empty on remote end, path = %s", $path));
+        } catch (\InvalidArgumentException $e) {
+            if (strpos($e->getMessage(), "directory does not exist") === false) {
+                throw $e;
             }
         }
         // clear local path
@@ -107,6 +113,7 @@ class RedshiftExporter
             $fh       = $this->s3Fs->readStream($partName);
             $this->localFs->putStream($partName, $fh);
             fclose($fh);
+            $this->s3Fs->delete($partName);
         }
         
     }

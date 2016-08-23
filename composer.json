@@ -3,7 +3,7 @@
     "description": "Redshift connection component with helper functions",
     "type"       : "library",
     "require"    : {
-        "oasis/aws-wrappers"      : "^1.1",
+        "oasis/aws-wrappers"      : "^1.4",
         "doctrine/dbal"           : "^2.5",
         "oasis/flysystem-wrappers": "^1.2"
     },
