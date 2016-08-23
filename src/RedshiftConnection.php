@@ -11,7 +11,6 @@ namespace Oasis\Mlib\Redshift;
 use Doctrine\Common\EventManager;
 use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Driver;
 use Doctrine\DBAL\DriverManager;
 use Oasis\Mlib\AwsWrappers\TemporaryCredential;
 use Oasis\Mlib\Utils\StringUtils;
@@ -99,6 +98,7 @@ UNLOAD (%s)
 TO '%s'
 CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s;token=%s'
 %s %s %s
+ALLOWOVERWRITE
 SQL;
         $stmt          = sprintf(
             $stmt_template,

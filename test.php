@@ -9,33 +9,69 @@
 
 require_once 'vendor/autoload.php';
 
+use Oasis\Mlib\AwsWrappers\S3Client;
 use Oasis\Mlib\AwsWrappers\StsClient;
+use Oasis\Mlib\FlysystemWrappers\ExtendedAwsS3Adapter;
+use Oasis\Mlib\FlysystemWrappers\ExtendedFilesystem;
+use Oasis\Mlib\FlysystemWrappers\ExtendedLocal;
+use Oasis\Mlib\Redshift\DrdStreamWriter;
 use Oasis\Mlib\Redshift\RedshiftConnection;
+use Oasis\Mlib\Redshift\RedshiftExporter;
+use Oasis\Mlib\Redshift\RedshiftImporter;
 
-$rs = RedshiftConnection::getConnection(
+$awsConfig = [
+    'profile' => "oasis-minhao",
+    'region'  => 'ap-northeast-1',
+];
+
+$sts      = new StsClient(
     [
-        "host"     => "***",
-        "port"     => 5439,
-        "dbname"   => "dmp",
-        "user"     => "dmp",
-        "password" => "***",
+        'profile' => 'oasis-minhao',
+        'region'  => 'ap-northeast-1',
     ]
 );
+$rs       = RedshiftConnection::getConnection(
+    [
+        "host"     => "oas-dmp-test.cikskyn4dlgm.ap-northeast-1.redshift.amazonaws.com",
+        "port"     => 5439,
+        "dbname"   => "oasdmp",
+        "user"     => "oasdmp",
+        "password" => "NU9qEG3nR8",
+    ]
+);
+$localFs  = new ExtendedFilesystem(new ExtendedLocal('/tmp'));
+$s3Fs     = new ExtendedFilesystem(new ExtendedAwsS3Adapter(new S3Client($awsConfig), "minhao-dev", "/tmp"));
+$importer = new RedshiftImporter(
+    $rs,
+    $localFs,
+    $s3Fs,
+    'ap-northeast-1',
+    $sts
+);
+$exporter = new RedshiftExporter(
+    $rs,
+    $localFs,
+    $s3Fs,
+    'ap-northeast-1',
+    $sts
+);
+$columns  = explode(",", "a1,a2,a3,a4,a5,a6,a7");
 
-$stmt = <<<SQL
-select events.event_id, events.appid, version, events.uuid, "timestamp", p1.v, p2.v from events left join params p1 on events.uuid = p1.uuid and events.event_id = p1.event_id and p1.k = 'os'
-left join params p2 on events.uuid = p2.uuid and events.event_id = p2.event_id and p2.k = 'locale'
-SQL;
+$dataPath = 'data';
+$localFs->put($dataPath, '');
+$drd_os = $localFs->appendStream($dataPath);
+$writer = new DrdStreamWriter($drd_os, $columns);
 
-$s3path = "s3://brotsoft-dmp/test2-export";
+for ($i = 0; $i < 10; ++$i) {
+    $data = [];
+    for ($j = 0; $j < 7; ++$j) {
+        $data['a' . ($j + 1)] = mt_rand(1, 10) + $j * 10;
+    }
+    $writer->writeRecord($data);
+}
+fclose($drd_os);
 
-$sts = new StsClient([
-    "profile" => "dmp-user",
-    "region" => 'us-east-1'
-]);
-$credential = $sts->getTemporaryCredential();
+//$importer->importFromFile('/out/testing', 'test', $columns, true, true);
+//$importer->importFromFile('ddd', 'test', $columns, true, true);
+$exporter->exportToFile('/out//testing', 'SELECT * FROM test', false, true, true);
 
-$rs->unloadToS3($stmt, $s3path, $credential, true, true);
-
-$columns = "a1,a2,a3,a4,a5,a6,a7";
-$rs->copyFromS3("test", $columns, $s3path, 'us-east-1', $credential, true, true);
