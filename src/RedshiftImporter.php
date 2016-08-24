@@ -46,10 +46,14 @@ class RedshiftImporter
     
     public function importFromFile($path, $table, $columns, $gzip = false, $overwriteS3Files = false)
     {
-        $path          = ltrim(preg_replace('#/+#', "/", $path), "/");
+        $timestamp = microtime(true) . getmypid();
+        $path      = ltrim(preg_replace('#/+#', "/", $path), "/");
+        
         $suffix        = $gzip ? "\\.gz" : "";
         $uploadPattern = "#^" . preg_quote($path, "#") . "([0-9]{2,})?(_part_[0-9]{2,})?$suffix\$#";
-        $clearPattern  = "#^" . preg_quote($path, "#") . "#";
+        $clearPattern  = "#^" . preg_quote($path, "#") . ".*/" . $timestamp . "\$#";
+        mdebug("Upload pattern is %s", $uploadPattern);
+        mdebug("Clear pattern is %s", $clearPattern);
         
         $localFinder = $this->localFs->getFinder();
         $localFinder->path($uploadPattern);
@@ -81,10 +85,14 @@ class RedshiftImporter
         $uploaded = [];
         foreach ($localFinder as $splFileInfo) {
             $relativePathname = $splFileInfo->getRelativePathname();
+            $remoteName       = $relativePathname . "/" . $timestamp;
             $fh               = $this->localFs->readStream($relativePathname);
-            $this->s3Fs->putStream($relativePathname, $fh);
+            // IMPORTANT: use write stream so that s3fs doesn't check for key exisistence, which in turn would bread the strong consistency of s3
+            $this->s3Fs->writeStream($remoteName, $fh);
             fclose($fh);
-            $uploaded[] = $relativePathname;
+            $uploaded[] = $remoteName;
+            
+            mdebug("Uploaded %s to %s", $relativePathname, $remoteName);
         }
         
         //$inStream = $this->localFs->readStream($path);

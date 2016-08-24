@@ -97,7 +97,9 @@ SQL;
 UNLOAD (%s)
 TO '%s'
 CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s;token=%s'
-%s %s %s
+%s
+%s
+%s
 ALLOWOVERWRITE
 SQL;
         $stmt          = sprintf(

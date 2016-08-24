@@ -90,7 +90,7 @@ SQL;
         self::$rs->exec($createStmt);
     }
     
-    public function testDataImport()
+    public function testDataImport($gzipped = false)
     {
         $data = [];
         for ($i = 1; $i <= 5; ++$i) {
@@ -101,23 +101,28 @@ SQL;
             $data[] = $row;
         }
         
-        $out    = fopen('php://memory', 'r+');
-        $writer = new DrdStreamWriter($out, self::FIELDS);
+        $filename = $gzipped ? "data.gz" : "data";
+        $out      = fopen('php://memory', 'r+');
+        $writer   = new DrdStreamWriter($out, self::FIELDS);
         foreach ($data as $row) {
             $writer->writeRecord($row);
         }
         rewind($out);
-        self::$localFs->putStream('data', $out);
+        $data = stream_get_contents($out);
+        if ($gzipped) {
+            $data = gzencode($data);
+        }
+        self::$localFs->put($filename, $data);
         fclose($out);
         
         $importer = new RedshiftImporter(self::$rs, self::$localFs, self::$s3Fs, self::$s3Region, self::$sts);
-        $importer->importFromFile('data', 'php_redshift_test', self::FIELDS, false, true);
+        $importer->importFromFile('data', 'php_redshift_test', self::FIELDS, $gzipped, true);
         
         $stmt = self::$rs->prepare("SELECT COUNT(*) FROM php_redshift_test");
         $stmt->execute();
         $result = $stmt->fetchColumn();
         
-        self::$localFs->delete('data');
+        self::$localFs->delete($filename);
         
         self::assertEquals(5, $result);
     }
@@ -153,5 +158,48 @@ SQL;
         
         self::assertEquals(5, $exportedCount);
         
+    }
+    
+    public function testDataImportExportWithGzipAndParallel()
+    {
+        $exportPrefix = "redshift_ut_" . time();
+        
+        $this->testDataImport(true);
+        $exporter = new RedshiftExporter(self::$rs, self::$localFs, self::$s3Fs, self::$s3Region, self::$sts);
+        $exporter->exportToFile($exportPrefix, "SELECT * FROM php_redshift_test", true, true, true);
+        
+        $exportedCount = 0;
+        $finder        = self::$localFs->getFinder();
+        $finder->path("#^" . preg_quote($exportPrefix, "#") . "#");
+        $unloaded = [];
+        foreach ($finder as $splFileInfo) {
+            $relativePathname = $splFileInfo->getRelativePathname();
+            $unloaded[]       = $relativePathname;
+            $content          = self::$localFs->read($relativePathname);
+            mdebug(gzdecode($content));
+            $fh = fopen('php://memory', 'r+');
+            fwrite($fh, gzdecode($content));
+            rewind($fh);
+            $reader = new DrdStreamReader($fh, self::FIELDS);
+            while ($reader->readRecord()) {
+                $exportedCount++;
+            }
+            fclose($fh);
+        }
+        self::assertEquals(5, $exportedCount);
+        
+        // test import of parallel data
+        $importer = new RedshiftImporter(self::$rs, self::$localFs, self::$s3Fs, self::$s3Region, self::$sts);
+        $importer->importFromFile($exportPrefix, 'php_redshift_test', self::FIELDS, true, true);
+        
+        $stmt = self::$rs->prepare("SELECT COUNT(*) FROM php_redshift_test");
+        $stmt->execute();
+        $result = $stmt->fetchColumn();
+        
+        self::assertEquals(10, $result);
+        
+        foreach ($unloaded as $relativePathname) {
+            self::$localFs->delete($relativePathname);
+        }
     }
 }
