@@ -49,10 +49,10 @@ class DrdStreamWriter
             }
             
             if (is_array($obj)) {
-                $v = $obj[$k];
+                $v = isset($obj[$k]) ? $obj[$k] : '';
             }
             else {
-                $v = $obj->$k;
+                $v = property_exists($obj, $k) ? $obj->$k : '';
             }
             
             $v = preg_replace(self::REPLACE_FROM, self::REPLACE_TO, $v);
