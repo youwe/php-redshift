@@ -42,7 +42,8 @@ class RedshiftConnection extends Connection
                                TemporaryCredential $tempCredential,
                                $escaped = true,
                                $gzip = false,
-                               $maxerror = 0
+                               $maxerror = 0,
+                               $options = []
     )
     {
         $stmt_template = <<<SQL
@@ -68,6 +69,12 @@ SQL;
             ($maxerror > 0 ? "MAXERROR $maxerror" : "")
         );
 
+        if ($options) {
+            foreach ($options as $argu) {
+                $stmt .= " $argu";
+            }
+        }
+
         mdebug("Copying using stmt:\n%s", $stmt);
         $prepared_statement = $this->prepare($stmt);
         $prepared_statement->execute();
@@ -90,7 +97,8 @@ SQL;
                                TemporaryCredential $tempCredential,
                                $escaped = true,
                                $gzip = false,
-                               $parallel = true
+                               $parallel = true,
+                               $options = []
     )
     {
         $stmt_template = <<<SQL
@@ -113,6 +121,13 @@ SQL;
             ($gzip ? "GZIP" : ""),
             ($parallel ? "" : "PARALLEL OFF")
         );
+
+        if ($options) {
+            foreach ($options as $argu) {
+                $stmt .= " $argu";
+            }
+        }
+
         mdebug("Unloading using stmt:\n%s", $stmt);
         $prepared_statement = $this->prepare($stmt);
         $prepared_statement->execute();
