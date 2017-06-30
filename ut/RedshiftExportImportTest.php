@@ -9,6 +9,7 @@ use Oasis\Mlib\Redshift\DrdStreamWriter;
 use Oasis\Mlib\Redshift\RedshiftConnection;
 use Oasis\Mlib\Redshift\RedshiftExporter;
 use Oasis\Mlib\Redshift\RedshiftImporter;
+use Oasis\Mlib\Redshift\StsCredentialProvider;
 use Oasis\Mlib\Utils\ArrayDataProvider;
 use Oasis\Mlib\Utils\DataProviderInterface;
 use Symfony\Component\Yaml\Yaml;
@@ -36,7 +37,7 @@ class RedshiftExportImportTest extends PHPUnit_Framework_TestCase
     /** @var  ExtendedFilesystem */
     protected static $s3Fs;
     protected static $s3Region;
-    /** @var  StsClient */
+    /** @var  StsCredentialProvider */
     protected static $sts;
     /** @var  RedshiftConnection */
     protected static $rs;
@@ -52,7 +53,7 @@ class RedshiftExportImportTest extends PHPUnit_Framework_TestCase
         
         $awsConfig      = $dp->getMandatory('aws', DataProviderInterface::ARRAY_TYPE);
         self::$s3Region = $dp->getMandatory('aws.region', DataProviderInterface::STRING_TYPE);
-        self::$sts      = new StsClient($awsConfig);
+        self::$sts      = new StsCredentialProvider(new StsClient($awsConfig));
         $s3             = new S3Client($awsConfig);
         self::$localFs  = new ExtendedFilesystem(new ExtendedLocal(sys_get_temp_dir()));
         self::$s3Fs     = new ExtendedFilesystem(
@@ -176,7 +177,7 @@ SQL;
             $relativePathname = $splFileInfo->getRelativePathname();
             $unloaded[]       = $relativePathname;
             $content          = self::$localFs->read($relativePathname);
-            mdebug(gzdecode($content));
+            mdebug("found file %s, content:\n%s", $relativePathname, gzdecode($content));
             $fh = fopen('php://memory', 'r+');
             fwrite($fh, gzdecode($content));
             rewind($fh);

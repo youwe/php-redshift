@@ -18,6 +18,7 @@ use Oasis\Mlib\Redshift\DrdStreamWriter;
 use Oasis\Mlib\Redshift\RedshiftConnection;
 use Oasis\Mlib\Redshift\RedshiftExporter;
 use Oasis\Mlib\Redshift\RedshiftImporter;
+use Oasis\Mlib\Redshift\StsCredentialProvider;
 
 $awsConfig = [
     'profile' => "oasis-minhao",
@@ -46,14 +47,14 @@ $importer = new RedshiftImporter(
     $localFs,
     $s3Fs,
     'ap-northeast-1',
-    $sts
+    new StsCredentialProvider($sts)
 );
 $exporter = new RedshiftExporter(
     $rs,
     $localFs,
     $s3Fs,
     'ap-northeast-1',
-    $sts
+    new StsCredentialProvider($sts)
 );
 $columns  = explode(",", "a1,a2,a3,a4,a5,a6,a7");
 

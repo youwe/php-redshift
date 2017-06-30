@@ -8,7 +8,6 @@
 
 namespace Oasis\Mlib\Redshift;
 
-use Oasis\Mlib\AwsWrappers\StsClient;
 use Oasis\Mlib\FlysystemWrappers\ExtendedFilesystem;
 
 class RedshiftExporter
@@ -25,23 +24,64 @@ class RedshiftExporter
      * @var ExtendedFilesystem
      */
     private $localFs;
-    /**
-     * @var StsClient
-     */
-    private $sts;
     private $s3Region;
+    /**
+     * @var CredentialProviderInterface
+     */
+    private $credentialProvider;
     
     public function __construct(RedshiftConnection $connection,
                                 ExtendedFilesystem $localFs,
                                 ExtendedFilesystem $s3Fs,
                                 $s3Region,
-                                StsClient $sts)
+                                CredentialProviderInterface $credentialProvider)
     {
-        $this->connection = $connection;
-        $this->localFs    = $localFs;
-        $this->s3Fs       = $s3Fs;
-        $this->s3Region   = $s3Region;
-        $this->sts        = $sts;
+        $this->connection         = $connection;
+        $this->localFs            = $localFs;
+        $this->s3Fs               = $s3Fs;
+        $this->s3Region           = $s3Region;
+        $this->credentialProvider = $credentialProvider;
+    }
+    
+    public function exportToS3($path,
+                               $query,
+                               $gzip = false,
+                               $isParallel = true,
+                               $overwriteExistingFiles = false)
+    {
+        $s3path = $this->s3Fs->getRealpath($path);
+        mdebug("export file to temp s3, prefix = %s", $s3path);
+        
+        // clear remote path
+        try {
+            $clearPattern = \sprintf("#^%s#", \preg_quote($path, "#"));
+            mdebug("Clear pattern for %s is %s", $s3path, $clearPattern);
+            $finder       = $this->s3Fs->getFinder();
+            $finder->path($clearPattern);
+            if ($finder->count() > 0) {
+                if ($overwriteExistingFiles) {
+                    foreach ($finder as $splFileInfo) {
+                        $this->s3Fs->delete($splFileInfo->getRelativePathname());
+                    }
+                }
+                else {
+                    throw new \RuntimeException(sprintf("The path is not empty on remote end, path = %s", $s3path));
+                }
+            }
+        } catch (\InvalidArgumentException $e) {
+            if (strpos($e->getMessage(), "directory does not exist") === false) {
+                throw $e;
+            }
+        }
+        
+        $this->connection->unloadToS3(
+            $query,
+            $s3path,
+            $this->credentialProvider,
+            true,
+            $gzip,
+            $isParallel
+        );
     }
     
     public function exportToFile($path,
@@ -51,35 +91,14 @@ class RedshiftExporter
                                  $overwriteExistingFiles = false)
     {
         
-        $path   = ltrim(preg_replace('#/+#', "/", $path), "/");
-        $s3path = $this->s3Fs->getRealpath($path);
-        mdebug("export file to temp s3, prefix = %s", $s3path);
+        $path = ltrim(preg_replace('#/+#', "/", $path), "/");
         
         $suffix          = $gzip ? "\\.gz" : "";
-        $clearPattern    = "#^" . preg_quote($path, "#") . "#";
-        $downloadPattern = "#^" . preg_quote($path, "#") . "([0-9]{2,})?(_part_[0-9]{2,})?$suffix\$#";
+        $clearPattern    = \sprintf("#^%s#", \preg_quote($path, "#"));
+        $downloadPattern = \sprintf("#^%s([0-9]{2,})?(_part_[0-9]{2,})?%s\$#", \preg_quote($path, "#"), $suffix);
         mdebug("Clear pattern for %s is %s", $path, $clearPattern);
         mdebug("Download pattern for %s is %s", $path, $downloadPattern);
         
-        // clear remote path
-        try {
-            $finder = $this->s3Fs->getFinder();
-            $finder->path($clearPattern);
-            if ($finder->count() > 0) {
-                if ($overwriteExistingFiles) {
-                    foreach ($finder as $splFileInfo) {
-                        $this->s3Fs->delete($splFileInfo->getRelativePathname());
-                    }
-                }
-                else {
-                    throw new \RuntimeException(sprintf("The path is not empty on remote end, path = %s", $path));
-                }
-            }
-        } catch (\InvalidArgumentException $e) {
-            if (strpos($e->getMessage(), "directory does not exist") === false) {
-                throw $e;
-            }
-        }
         // clear local path
         $finder = $this->localFs->getFinder();
         $finder->path($clearPattern);
@@ -94,16 +113,7 @@ class RedshiftExporter
             }
         }
         
-        $tempCredential = $this->sts->getTemporaryCredential();
-        
-        $this->connection->unloadToS3(
-            $query,
-            $s3path,
-            $tempCredential,
-            true,
-            $gzip,
-            $isParallel
-        );
+        $this->exportToS3($path, $query, $gzip, $isParallel, $overwriteExistingFiles);
         
         $finder = $this->s3Fs->getFinder();
         $finder->path($downloadPattern);

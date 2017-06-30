@@ -8,7 +8,6 @@
 
 namespace Oasis\Mlib\Redshift;
 
-use Oasis\Mlib\AwsWrappers\StsClient;
 use Oasis\Mlib\FlysystemWrappers\ExtendedFilesystem;
 
 class RedshiftImporter
@@ -25,23 +24,39 @@ class RedshiftImporter
      * @var ExtendedFilesystem
      */
     private $localFs;
-    /**
-     * @var StsClient
-     */
-    private $sts;
     private $s3Region;
+    /**
+     * @var CredentialProviderInterface
+     */
+    private $credentialProvider;
     
     public function __construct(RedshiftConnection $connection,
                                 ExtendedFilesystem $localFs,
                                 ExtendedFilesystem $s3Fs,
                                 $s3Region,
-                                StsClient $sts)
+                                CredentialProviderInterface $credentialProvider)
     {
-        $this->connection = $connection;
-        $this->localFs    = $localFs;
-        $this->s3Fs       = $s3Fs;
-        $this->s3Region   = $s3Region;
-        $this->sts        = $sts;
+        $this->connection         = $connection;
+        $this->localFs            = $localFs;
+        $this->s3Fs               = $s3Fs;
+        $this->s3Region           = $s3Region;
+        $this->credentialProvider = $credentialProvider;
+    }
+    
+    public function importFromS3($path, $table, $columns, $gzip = false)
+    {
+        $s3path = $this->s3Fs->getRealpath($path);
+        mdebug("Will import files from s3 prefix %s", $s3path);
+        
+        $this->connection->copyFromS3(
+            $table,
+            $columns,
+            $s3path,
+            $this->s3Region,
+            $this->credentialProvider,
+            true,
+            $gzip
+        );
     }
     
     public function importFromFile($path, $table, $columns, $gzip = false, $overwriteS3Files = false)
@@ -50,8 +65,16 @@ class RedshiftImporter
         $path      = ltrim(preg_replace('#/+#', "/", $path), "/");
         
         $suffix        = $gzip ? "\\.gz" : "";
-        $uploadPattern = "#^" . preg_quote($path, "#") . "([0-9]{2,})?(_part_[0-9]{2,})?$suffix\$#";
-        $clearPattern  = "#^" . preg_quote($path, "#") . ".*/" . $timestamp . "\$#";
+        $uploadPattern = \sprintf(
+            "#^%s([0-9]{2,})?(_part_[0-9]{2,})?%s\$#",
+            \preg_quote($path, '#'),
+            $suffix
+        );
+        $clearPattern  = \sprintf(
+            "#^%s/%s\$#",
+            $timestamp,
+            preg_quote($path, "#")
+        );
         mdebug("Upload pattern is %s", $uploadPattern);
         mdebug("Clear pattern is %s", $clearPattern);
         
@@ -83,38 +106,25 @@ class RedshiftImporter
         }
         
         $uploaded = [];
-        foreach ($localFinder as $splFileInfo) {
-            $relativePathname = $splFileInfo->getRelativePathname();
-            $remoteName       = $relativePathname . "/" . $timestamp;
-            $fh               = $this->localFs->readStream($relativePathname);
-            // IMPORTANT: use write stream so that s3fs doesn't check for key exisistence, which in turn would bread the strong consistency of s3
-            $this->s3Fs->writeStream($remoteName, $fh);
-            fclose($fh);
-            $uploaded[] = $remoteName;
+        try {
+            foreach ($localFinder as $splFileInfo) {
+                $relativePathname = $splFileInfo->getRelativePathname();
+                $remoteName       = \sprintf("%s/%s", $timestamp, $relativePathname);
+                $fh               = $this->localFs->readStream($relativePathname);
+                // IMPORTANT: putStream will not check for file existence, while writeStream will check
+                // calling an has() before putting actual content will break strong consistency of S3
+                $this->s3Fs->putStream($remoteName, $fh);
+                fclose($fh);
+                $uploaded[] = $remoteName;
+                
+                mdebug("Uploaded %s to %s", $relativePathname, $remoteName);
+            }
             
-            mdebug("Uploaded %s to %s", $relativePathname, $remoteName);
-        }
-        
-        //$inStream = $this->localFs->readStream($path);
-        //$this->s3Fs->putStream($path, $inStream);
-        
-        $s3path = $this->s3Fs->getRealpath($path);
-        mdebug("uploaded file to temp s3, path = %s", $s3path);
-        
-        $tempCredential = $this->sts->getTemporaryCredential();
-        
-        $this->connection->copyFromS3(
-            $table,
-            $columns,
-            $s3path,
-            $this->s3Region,
-            $tempCredential,
-            true,
-            $gzip
-        );
-        
-        foreach ($uploaded as $relativePathname) {
-            $this->s3Fs->delete($relativePathname);
+            $this->importFromS3(\sprintf("%s/%s", $timestamp, $path), $table, $columns, $gzip);
+        } finally {
+            foreach ($uploaded as $relativePathname) {
+                $this->s3Fs->delete($relativePathname);
+            }
         }
     }
 }

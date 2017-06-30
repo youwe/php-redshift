@@ -12,7 +12,6 @@ use Doctrine\Common\EventManager;
 use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
-use Oasis\Mlib\AwsWrappers\TemporaryCredential;
 use Oasis\Mlib\Utils\StringUtils;
 
 class RedshiftConnection extends Connection
@@ -22,7 +21,7 @@ class RedshiftConnection extends Connection
      * @param Configuration|null $config
      * @param EventManager|null  $eventManager
      *
-     * @return static
+     * @return Connection|RedshiftConnection
      * @throws \Doctrine\DBAL\DBALException
      */
     public static function getConnection(array $params,
@@ -31,15 +30,15 @@ class RedshiftConnection extends Connection
     {
         $params['wrapperClass'] = static::class;
         $params['driver']       = 'pdo_pgsql';
-
+        
         return DriverManager::getConnection($params, $config, $eventManager);
     }
-
+    
     public function copyFromS3($table,
                                $columns,
                                $s3path,
                                $s3region,
-                               TemporaryCredential $tempCredential,
+                               CredentialProviderInterface $credentialProvider,
                                $escaped = true,
                                $gzip = false,
                                $maxerror = 0,
@@ -48,7 +47,7 @@ class RedshiftConnection extends Connection
     {
         $stmt_template = <<<SQL
 COPY %s (%s) FROM '%s'
-CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s;token=%s'
+%s
 REGION %s
 %s
 %s
@@ -60,41 +59,39 @@ SQL;
             $this->normalizeTable($table),
             $this->normalizeColumns($columns),
             $this->normalizeS3Path($s3path),
-            $tempCredential->accessKeyId,
-            $tempCredential->secretAccessKey,
-            $tempCredential->sessionToken,
+            $credentialProvider->getCredentialString(),
             $this->normalizeSingleQuotedValue($s3region),
             ($escaped ? "ESCAPE" : ""),
             ($gzip ? "GZIP" : ""),
             ($maxerror > 0 ? "MAXERROR $maxerror" : "")
         );
-
+        
         if ($options) {
             foreach ($options as $argu) {
                 $stmt .= " $argu";
             }
         }
-
+        
         mdebug("Copying using stmt:\n%s", $stmt);
         $prepared_statement = $this->prepare($stmt);
         $prepared_statement->execute();
     }
-
+    
     /**
      * NOTE: region of s3 bucket must be the same as redshift cluster
      *
-     * @param                     $selectStatement
-     * @param                     $s3path
-     * @param TemporaryCredential $tempCredential
-     * @param bool                $escaped
-     * @param bool                $gzip
-     * @param bool                $parallel
+     * @param                             $selectStatement
+     * @param                             $s3path
+     * @param CredentialProviderInterface $credentialProvider
+     * @param bool                        $escaped
+     * @param bool                        $gzip
+     * @param bool                        $parallel
      *
-     * @throws \Doctrine\DBAL\DBALException
+     * @param array                       $options
      */
     public function unloadToS3($selectStatement,
                                $s3path,
-                               TemporaryCredential $tempCredential,
+                               CredentialProviderInterface $credentialProvider,
                                $escaped = true,
                                $gzip = false,
                                $parallel = true,
@@ -104,7 +101,7 @@ SQL;
         $stmt_template = <<<SQL
 UNLOAD (%s)
 TO '%s'
-CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s;token=%s'
+%s
 %s
 %s
 %s
@@ -114,25 +111,23 @@ SQL;
             $stmt_template,
             $this->normalizeSingleQuotedValue($selectStatement),
             $this->normalizeS3Path($s3path),
-            $tempCredential->accessKeyId,
-            $tempCredential->secretAccessKey,
-            $tempCredential->sessionToken,
+            $credentialProvider->getCredentialString(),
             ($escaped ? "ESCAPE" : ""),
             ($gzip ? "GZIP" : ""),
             ($parallel ? "" : "PARALLEL OFF")
         );
-
+        
         if ($options) {
             foreach ($options as $argu) {
                 $stmt .= " $argu";
             }
         }
-
+        
         mdebug("Unloading using stmt:\n%s", $stmt);
         $prepared_statement = $this->prepare($stmt);
         $prepared_statement->execute();
     }
-
+    
     public function normalizeTable($table)
     {
         $exploded = explode(".", $table);
@@ -163,10 +158,10 @@ SQL;
                 throw new \InvalidArgumentException("Invalid table name: $table");
                 break;
         }
-
+        
         return $table;
     }
-
+    
     /**
      * Normalize columns into comma delitited list
      *
@@ -182,14 +177,14 @@ SQL;
         elseif (!is_array($columns)) {
             throw new \InvalidArgumentException("Columns should be either an array, or a comma delimited string");
         }
-
+        
         $clist = '';
         foreach ($columns as $c) {
             $c = trim($c);
             if (!$c) {
                 continue;
             }
-
+            
             if (!(StringUtils::stringStartsWith($c, "\"")
                   && StringUtils::stringEndsWith($c, "\""))
             ) {
@@ -198,10 +193,10 @@ SQL;
             $clist .= ", $c";
         }
         $clist = trim($clist, ",");
-
+        
         return $clist;
     }
-
+    
     public function normalizeS3Path($s3path)
     {
         static $protocol = "s3://";
@@ -209,14 +204,14 @@ SQL;
             $s3path = substr($s3path, strlen($protocol));
         }
         $s3path = preg_replace('#/+#', "/", $s3path);
-
+        
         return $protocol . $s3path;
     }
-
+    
     public function normalizeSingleQuotedValue($value)
     {
         $value = addcslashes($value, "\\'");
-
+        
         return "'$value'";
     }
 }
