@@ -48,10 +48,12 @@ class RedshiftConnection extends Connection
         /** @var RedshiftConnection $cnn */
         $cnn = DriverManager::getConnection($params, $config, $eventManager);
 
-        $cnn->analyticExtension = $params['analytic_ext'] ?? new AwsRedshiftAnalyticExtension($cnn);
+        $cnn->analyticExtension = $params['analytic_ext'] ?? new AwsRedshiftAnalyticExtension();
         if (($cnn->analyticExtension instanceof ConnectionAnalyticExtension) === false) {
             throw new DataValidationException("Bad class type in 'analytic_ext'");
         }
+
+        $cnn->analyticExtension->register($cnn);
 
         return $cnn;
     }

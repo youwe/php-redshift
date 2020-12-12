@@ -12,7 +12,7 @@ abstract class ConnectionAnalyticExtension
     /** @var RedshiftConnection */
     protected $connection;
 
-    public function __construct(RedshiftConnection $connection)
+    public function register(RedshiftConnection $connection)
     {
         $this->connection = $connection;
     }
