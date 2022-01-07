@@ -1,5 +1,5 @@
 {
-    "name": "oasis/redshift",
+    "name": "youwe/redshift",
     "description": "Redshift connection component with helper functions",
     "type": "library",
     "require": {
@@ -14,8 +14,8 @@
     "license": "MIT",
     "authors": [
         {
-            "name": "Minhao Zhang",
-            "email": "minhao.zhang@qq.com"
+            "name": "Rob Wiek",
+            "email": "r.wiek@youweagency.com"
         }
     ],
     "autoload": {

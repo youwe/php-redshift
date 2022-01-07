@@ -43,7 +43,7 @@ class RedshiftImporter
         $this->credentialProvider = $credentialProvider;
     }
     
-    public function importFromS3($path, $table, $columns, $gzip = false)
+    public function importFromS3($path, $table, $columns, $gzip = false, $options = [])
     {
         $s3path = $this->s3Fs->getRealpath($path);
         mdebug("Will import files from s3 prefix %s", $s3path);
@@ -55,11 +55,13 @@ class RedshiftImporter
             $this->s3Region,
             $this->credentialProvider,
             true,
-            $gzip
+            $gzip,
+            0,
+            $options
         );
     }
     
-    public function importFromFile($path, $table, $columns, $gzip = false, $overwriteS3Files = false)
+    public function importFromFile($path, $table, $columns, $gzip = false, $overwriteS3Files = false, $options = [])
     {
         $timestamp = microtime(true) . getmypid();
         $path      = ltrim(preg_replace('#/+#', "/", $path), "/");
@@ -120,7 +122,7 @@ class RedshiftImporter
                 mdebug("Uploaded %s to %s", $relativePathname, $remoteName);
             }
             
-            $this->importFromS3(\sprintf("%s/%s", $timestamp, $path), $table, $columns, $gzip);
+            $this->importFromS3(\sprintf("%s/%s", $timestamp, $path), $table, $columns, $gzip, $options);
         } finally {
             foreach ($uploaded as $relativePathname) {
                 $this->s3Fs->delete($relativePathname);
